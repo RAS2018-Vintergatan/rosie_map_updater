@@ -28,6 +28,7 @@
 #include <numeric>      // std::accumulate
 
 #include <rosie_map_controller/CommissionRerun.h>
+#include <cstdlib>
 
 float PI = 3.1415926f;
 float robotsize = 0.2f;
