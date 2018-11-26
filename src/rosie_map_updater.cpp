@@ -27,7 +27,7 @@
 #include <string>
 #include <numeric>      // std::accumulate
 
-#include <rosie_map_controller/CommissionRerun.h>
+#include <rosie_map_updater/NewGrid.h>
 #include <cstdlib>
 
 float PI = 3.1415926f;
@@ -35,8 +35,13 @@ float robotsize = 0.2f;
 float OFFSET[] = {0,0};
 float XDIM;
 float YDIM;
+int forgettingTime = 60; // in sec
 
 ros::Time load_time;
+std::vector<ros::Time> last_load_time;
+
+ros::ServiceClient occClient;
+rosie_map_updater::NewGrid srv;
 
 std::vector<float> lidarx;
 std::vector<float> lidary;
@@ -49,10 +54,13 @@ int mapInitialized = 0;
 int gridInitialized = 0;
 
 visualization_msgs::MarkerArray all_marker;
-ros::Publisher occ_pub;
-ros::Publisher wall_pub;
+std::vector<std::vector<float> > newWalls;
 
-float newWall[4];
+float certaintyValue;
+float certaintyLimit = 0.1;
+void certaintyCallback(std_msgs::Float32 msg){
+	certaintyValue = msg.data;
+}
 
 float origin[] = {0.0f,0.0f};
 float temp[2];
@@ -210,7 +218,8 @@ void wallCallback(const visualization_msgs::MarkerArray msg){
 void lidarCallback(sensor_msgs::PointCloud msg){
 
 	int size = sizeof(msg.points)*sizeof(msg.points[0]);
-
+	lidarx.clear();
+	lidary.clear();
 	for(int i = 0; i<size; ++i){
 		lidarx.push_back(msg.points[i].x);
 		lidary.push_back(msg.points[i].y);
@@ -258,7 +267,7 @@ float dist(float q1[], float q2[]){
     return d;
 }
 
-float * regression(std::vector<float> x, std::vector<float> y, float wall[]){
+void regression(std::vector<float> x, std::vector<float> y){
     //if(x.size() != y.size()){
     //    throw exception("x,y unequal size");
     //}
@@ -280,11 +289,13 @@ float * regression(std::vector<float> x, std::vector<float> y, float wall[]){
     //}
 		float b = numerator/denominator;
 		float a = avgY-b*avgX;
-		wall[0] = x[0];
-		wall[1] = a+b*x[0];
-		wall[2] = x[x.size()-1];
-		wall[3] = a+b*x[x.size()-1];
-
+		std::vector<float> wall;
+		wall.push_back(x[0]);
+		wall.push_back(a+b*x[0]);
+		wall.push_back(x[x.size()-1]);
+		wall.push_back(a+b*x[x.size()-1]);
+		newWalls.push_back(wall);
+		last_load_time.push_back(load_time);
     //return wall;// = b
 		// a = avgY-b*avgX;
 }
@@ -345,69 +356,6 @@ bool checkIntersect(float A[]){         //array definition might be wrong
 		return nc;
 }
 
-/*
-bool checkIntersect(Node  n2, Node n1){         //array definition might be wrong
-	float A[]= {n1.x,n1.y};
-float B[]= {n2.x,n2.y};
-
-bool nc = true;
-for(int i =0 ; i<OBS.size(); i = i+4){
-		float dist = sqrt(pow(OBS[i+2]-OBS[i+0],2)+pow(OBS[i+3]-OBS[i+1],2));
-		float m1 = (OBS[i+2]-OBS[i+0])/dist;
-		float m2 = (OBS[i+3]-OBS[i+1])/dist;
-		float r = 0.15f;
-
-		float x1,y1,x2,y2;
-		if(m1 >= 0.0f){
-				x1 = OBS[i+0]-m1*r;
-				y1 = OBS[i+1]-m2*r;
-				x2 = OBS[i+2]+m1*r;
-				y2 = OBS[i+3]+m2*r;
-		}else{
-				x1 = OBS[i+0]+m1*r;
-				y1 = OBS[i+1]+m2*r;
-				x2 = OBS[i+2]-m1*r;
-				y2 = OBS[i+3]-m2*r;
-		}
-
-		m1 = 1-m1;
-		m2 = 1-m2;
-
-		float P1[] = {x1-m1*r , y1+m2*r};
-		float P2[] = {x1+m1*r , y1-m2*r};
-		float P3[] = {x2-m1*r , y2+m2*r};
-		float P4[] = {x2+m1*r , y2-m2*r};
-/*
-		bool ints1 = ccw(A,P1,P4) != ccw(B,P1,P4) and ccw(A,B,P1) != ccw(A,B,P4);
-		bool ints2 = ccw(A,P1,P2) != ccw(B,P1,P2) and ccw(A,B,P1) != ccw(A,B,P2);
-		bool ints3 = ccw(A,P3,P2) != ccw(B,P3,P2) and ccw(A,B,P3) != ccw(A,B,P2);
-		bool ints4 = ccw(A,P3,P4) != ccw(B,P3,P4) and ccw(A,B,P3) != ccw(A,B,P4);
-
-
-		float C1[] = {P1[0],P1[1]};
-		float C2[] = {P1[0],P1[1]};
-		float C3[] = {P3[0],P3[1]};
-		float C4[] = {P3[0],P3[1]};
-		float D1[] = {P4[0],P4[1]};
-		float D2[] = {P2[0],P2[1]};
-		float D3[] = {P2[0],P2[1]};
-		float D4[] = {P4[0],P4[1]};
-
-		bool ints1 = ccw(A,C1,D1) != ccw(B,C1,D1) and ccw(A,B,C1) != ccw(A,B,D1);
-		bool ints2 = ccw(A,C2,D2) != ccw(B,C2,D2) and ccw(A,B,C2) != ccw(A,B,D2);
-		bool ints3 = ccw(A,C3,D3) != ccw(B,C3,D3) and ccw(A,B,C3) != ccw(A,B,D3);
-		bool ints4 = ccw(A,C4,D4) != ccw(B,C4,D4) and ccw(A,B,C4) != ccw(A,B,D4);
-
-		if(ints1==0 and ints2==0 and ints3==0 and ints4==0 and nc ==1){
-				nc = true;
-		}else{
-				nc = false;
-		}
-return nc;
-}
-}
-*/
-
 float randnum;
 float randZO(float min, float max){
 		srand(ros::Time::now().nsec);
@@ -418,27 +366,30 @@ float randZO(float min, float max){
 
 int newGridInit = 0;
 nav_msgs::OccupancyGrid mapgrid;
-void publishGrid(){
-	float wallDist = sqrt(pow(newWall[0]-newWall[2],2) + pow(newWall[1]-newWall[3],2))/resolution;
-	for(float d = 0.0; d <= wallDist; d+=resolution){
-		int px = (int)((d*((newWall[2]-newWall[0])/wallDist)+newWall[0])/resolution);
-		int py = (int)((d*((newWall[3]-newWall[1])/wallDist)+newWall[1])/resolution);
-		occGrid[py*width+px] = 125;
+void buildGrid(){
+	float wallDist;
+	for(int i = 0; i<newWalls.size(); i++){
+		wallDist = sqrt(pow(newWalls[i][0]-newWalls[i][2],2) + pow(newWalls[i][1]-newWalls[i][3],2))/resolution;
+		for(float d = 0.0; d <= wallDist; d+=resolution){
+			int px = (int)((d*((newWalls[i][2]-newWalls[i][0])/wallDist)+newWalls[i][0])/resolution);
+			int py = (int)((d*((newWalls[i][3]-newWalls[i][1])/wallDist)+newWalls[i][1])/resolution);
+			occGrid[py*width+px] = 125;
 
-		for(int y = -czone; y <= czone; y++){
-			for(int x = -czone; x <= czone; x++){
-				if((px+x) >= 0 && (px+x) < width && (py+y) >= 0 && (py+y) < height){
-					if(occGrid[(py+y)*width+px+x] != 125){
-						occGrid[(py+y)*width+px+x] = 124;
+			for(int y = -czone; y <= czone; y++){
+				for(int x = -czone; x <= czone; x++){
+					if((px+x) >= 0 && (px+x) < width && (py+y) >= 0 && (py+y) < height){
+						if(occGrid[(py+y)*width+px+x] != 125){
+							occGrid[(py+y)*width+px+x] = 124;
+						}
 					}
 				}
 			}
 		}
 	}
+
 	gridheader.seq = gridheader.seq +1;
 	gridheader.stamp = ros::Time::now();
 	gridinfo.map_load_time = load_time;
-
 
 	mapgrid.header = gridheader;
 	mapgrid.info = gridinfo;
@@ -447,11 +398,16 @@ void publishGrid(){
 		mapgrid.data.push_back(occGrid[i]);
 	}
 	newGridInit = 1;
+}
 
+void callService(){
+	srv.request.newGrid = mapgrid;
+	occClient.call(srv);
 
 }
+/*
 int markersInitialized = 0;
-void publishWallMarkers(){
+void buildWallMarkers(){
 
 	all_marker.markers.clear();
 	//all_marker.resize(markers.size());
@@ -460,20 +416,10 @@ void publishWallMarkers(){
 		markers[i].header.stamp = ros::Time();
 		all_marker.markers.push_back(markers[i]);
 	}
-
-	std::string line;
-	double max_num = std::numeric_limits<double>::max();
-	double x1= max_num,
-				 x2= max_num,
-				 y1= max_num,
-				 y2= max_num;
-
-	std::istringstream line_stream(line);
-
-	line_stream >> x1 >> y1 >> x2 >> y2;
+	wall_id = markers.size()-1;
 
 	visualization_msgs::Marker wall_marker;
-	wall_marker.header.frame_id = markers[markers.size()-1].header.frame_id;
+	wall_marker.header.frame_id = "/map";
 	wall_marker.header.stamp = ros::Time();
 	wall_marker.ns = "world";
 	wall_marker.type = visualization_msgs::Marker::CUBE;
@@ -486,30 +432,46 @@ void publishWallMarkers(){
 	wall_marker.color.b = (0.0/255.0);
 	wall_marker.pose.position.z = 0.2;
 
-  // angle and distance
-  double angle = atan2(newWall[3]-newWall[1],newWall[2]-newWall[0]);
-  double dist = sqrt(pow(newWall[0]-newWall[2],2) + pow(newWall[1]-newWall[3],2));
+	std::string line;
+	double x1, x2, y1, y2;
+	for(int i = 0; i< newWalls.size(), i++){
+		x1= newWalls[i][0];
+	  x2= newWalls[i][2];
+	  y1= newWalls[i][1];
+	  y2= newWalls[i][3];
 
-  // set pose
-  wall_marker.scale.x = std::max(0.01,dist);
-  wall_marker.pose.position.x = (newWall[0]+newWall[2])/2;
-  wall_marker.pose.position.y = (newWall[1]+newWall[3])/2;
-  wall_marker.text=line_stream.str();
-  tf::Quaternion quat; quat.setRPY(0.0,0.0,angle);
-  tf::quaternionTFToMsg(quat, wall_marker.pose.orientation);
+		std::istringstream line_stream(line);
 
-  // add to array
-  wall_marker.id = markers.size();
-  all_marker.markers.push_back(wall_marker);
+		line_stream >> x1 >> y1 >> x2 >> y2;
+
+	  // angle and distance
+	  double angle = atan2(y2-y1,x2-x1);
+	  double dist = sqrt(pow(x1-x2,2) + pow(y1-y2,2));
+
+	  // set pose
+	  wall_marker.scale.x = std::max(0.01,dist);
+	  wall_marker.pose.position.x = (x1+x2)/2;
+	  wall_marker.pose.position.y = (y1+y2)/2;
+	  wall_marker.text=line_stream.str();
+	  tf::Quaternion quat; quat.setRPY(0.0,0.0,angle);
+	  tf::quaternionTFToMsg(quat, wall_marker.pose.orientation);
+
+	  // add to array
+	  wall_marker.id = markers.size();
+	  all_marker.markers.push_back(wall_marker);
+		wall_id++;
+	}
+
 
 	markersInitialized = 1;
 }
+*/
 
 float test_points[2];
 std::vector<float> reduced_lidar_x;
 std::vector<float> reduced_lidar_y;
 
-void detectNewWalls(){
+void detectnewWalls(){
 	reduced_lidar_x.clear();
 	reduced_lidar_y.clear();
 	for(int i =0; i<lidarx.size(); i++){
@@ -521,12 +483,22 @@ void detectNewWalls(){
 		}
 	}
 	if(!reduced_lidar_x.empty()){
-	regression(reduced_lidar_x, reduced_lidar_y, newWall);
-	publishGrid();
-	publishWallMarkers();
+		regression(reduced_lidar_x, reduced_lidar_y);
+		buildGrid();
+		callService();
+		//buildWallMarkers();
 	}
 }
 
+void forgetWalls(){
+	for(int i = 0; i<newWalls.size(); i++){
+		if((load_time.toSec()-last_load_time[i].toSec())>forgettingTime){
+			last_load_time.erase(last_load_time.begin()+i);
+			newWalls.erase(newWalls.begin()+i);
+			i--;
+		}
+	}
+}
 
 bool grip_command;
 int main(int argc, char **argv){
@@ -537,23 +509,27 @@ int main(int argc, char **argv){
 		ros::Subscriber wall_sub = n.subscribe<visualization_msgs::MarkerArray>("/maze_map", 1000, wallCallback);
 		ros::Subscriber occ_sub = n.subscribe<nav_msgs::OccupancyGrid>("/rosie_occupancy_grid", 1000, gridCallback);
 		ros::Subscriber pose_sub = n.subscribe<nav_msgs::Odometry>("/odom", 10, poseCallback);
-		occ_pub = n.advertise<nav_msgs::OccupancyGrid>("/rosie_occupancy_grid",1);
-		wall_pub = n.advertise<visualization_msgs::MarkerArray>("/maze_map",1000);
-
+		ros::Subscriber loc_cert_sub = n.subscribe<std_msgs::Float32>("/localization_certainty", 10, certaintyCallback);
+		//occ_pub = n.advertise<nav_msgs::OccupancyGrid>("/rosie_occupancy_grid",1);
+		//wall_pub = n.advertise<visualization_msgs::MarkerArray>("/maze_map",1000);
+		occClient = n.serviceClient<rosie_map_updater::NewGrid>("update_grid");
 		static tf::TransformBroadcaster br;
 
     ros::Rate loop_rate(10);
-	  load_time = ros::Time::now();
+
 
 		//objInit();
 		//batInit();
 
     while(ros::ok()){
+			load_time = ros::Time::now();
 			//loop_rate.sleep();
-			if(mapInitialized and gridInitialized and markersInitialized){
-					detectNewWalls();
-					occ_pub.publish(mapgrid);
-					wall_pub.publish(all_marker);
+			if(mapInitialized and gridInitialized and (certaintyValue < certaintyLimit)){
+					forgetWalls();
+					detectnewWalls();
+
+					//occ_pub.publish(mapgrid);
+					//wall_pub.publish(all_marker);
 					tf::Transform transform;
 					transform.setOrigin( tf::Vector3(0,0, 0) );
 					tf::Quaternion qtf;

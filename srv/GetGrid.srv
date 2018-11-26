@@ -1,0 +1,4 @@
+bool question
+---
+bool answer
+nav_msgs/OccupancyGrid newGrid
