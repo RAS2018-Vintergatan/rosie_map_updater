@@ -1,0 +1,9 @@
+<launch>
+	
+	<!-- run the map updater -->
+	<node pkg="rosie_map_updater" type="rosie_map_updater" name="map_updater"/>
+
+	<!-- run map updating service -->
+	<node pkg="rosie_map_updater" type="rosie_update_service" name="update_service"/>	
+
+</launch>
