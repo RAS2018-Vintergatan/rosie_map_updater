@@ -150,6 +150,8 @@ float sX, sY, eX, eY;
 std::vector<visualization_msgs::Marker> markers;
 float resolution;
 rosie_map_controller::MapStoring wallStack;
+rosie_map_controller::MapStoring originalMap;
+rosie_map_controller::MapStoring completeMap;
 void wallCallback(const visualization_msgs::MarkerArray msg){
 	markers.clear();
 	for(int i =0; i<msg.markers.size();i++){
@@ -217,13 +219,19 @@ void wallCallback(const visualization_msgs::MarkerArray msg){
 		XDIM = (maxX - minX);
 		YDIM = (maxY - minY);
 		float single_wall[4];
+		rosie_map_controller::WallDefinition tempwall;
 		for(int i = 0; i<(wallArray.size()); i=i+4){
 			single_wall[0] = wallArray[i];
 			single_wall[1] = wallArray[i+1];
 			single_wall[2] = wallArray[i+2];
 			single_wall[3] = wallArray[i+3];
-
+			wall.x1 = single_wall[0];
+			wall.y1 = single_wall[1];
+			wall.x2 = single_wall[2];
+			wall.y2 = single_wall[3];
+			wall.certainty = 32000;
 			bool test1 = addToObs(single_wall);
+			originalMap.NewWalls.push_back(tempwall);
 		}
 		mapInitialized = 1;
 		//ROS_INFO("map initialized");
@@ -476,7 +484,9 @@ bool markersInitialized = 0;
 void buildWallMarkers(){
 	//mapSrv.request.send = wallStack;
 	//storeMapClient.call(mapSrv);
-	wallStack_pub.publish(wallStack);
+	completeMap.NewWalls.insert(completeMap.NewWalls.begin(), wallStack.NewWalls.begin(), wallStack.NewWalls.end());
+	completeMap.NewWalls.insert(completeMap.NewWalls.begin(), originalMap.NewWalls.begin(), originalMap.NewWalls.end());
+	wallStack_pub.publish(completeMap);
 	/*
 	all_marker.markers.clear();
 	//all_marker.resize(markers.size());
