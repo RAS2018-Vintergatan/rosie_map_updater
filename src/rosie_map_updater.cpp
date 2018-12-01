@@ -53,6 +53,7 @@ std::vector<ros::Time> last_load_time;
 
 ros::ServiceClient occClient;
 rosie_map_updater::NewGrid newGridSrv;
+ros::Publisher wallStack_pub;
 
 std::vector<float> lidarx;
 std::vector<float> lidary;
@@ -473,8 +474,9 @@ void callService(){
 
 bool markersInitialized = 0;
 void buildWallMarkers(){
-	mapSrv.request.send = wallStack;
-	storeMapClient.call(mapSrv);
+	//mapSrv.request.send = wallStack;
+	//storeMapClient.call(mapSrv);
+	wallStack_pub.publish(wallStack);
 	/*
 	all_marker.markers.clear();
 	//all_marker.resize(markers.size());
@@ -606,6 +608,7 @@ int main(int argc, char **argv){
 		ros::Subscriber occ_sub = n.subscribe<nav_msgs::OccupancyGrid>("/rosie_occupancy_grid", 1000, gridCallback);
 		ros::Subscriber pose_sub = n.subscribe<nav_msgs::Odometry>("/odom", 10, poseCallback);
 		ros::Subscriber loc_cert_sub = n.subscribe<std_msgs::Float32>("/localization_certainty", 10, certaintyCallback);
+		wallStack_pub = n.advertise<rosie_map_controller::MapStoring>("/wall_stack", 10);
 		storeMapClient = n.serviceClient<rosie_map_controller::RequestMapStoring>("request_store_objects");
 		loadClient = n.serviceClient<rosie_map_controller::RequestLoading>("request_load_mapping");
 		occClient = n.serviceClient<rosie_map_updater::NewGrid>("update_grid");
