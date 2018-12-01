@@ -54,6 +54,7 @@ std::vector<ros::Time> last_load_time;
 ros::ServiceClient occClient;
 rosie_map_updater::NewGrid newGridSrv;
 ros::Publisher wallStack_pub;
+ros::Publisher wall_viz_pub;
 
 std::vector<float> lidarx;
 std::vector<float> lidary;
@@ -65,7 +66,6 @@ nav_msgs::Odometry pose;
 int mapInitialized = 0;
 int gridInitialized = 0;
 
-visualization_msgs::MarkerArray all_marker;
 std::vector<std::vector<float> > newWalls;
 int wallCounter = -1;
 
@@ -168,7 +168,8 @@ void wallCallback(const visualization_msgs::MarkerArray msg){
 		for(int i = 0; i < 4*numbMarkers; ++i){
 			wallArray[i] = -1.0f;
 		}
-
+		float single_wall[4];
+		rosie_map_controller::WallDefinition tempwall;
 
 		minX = minY = maxX = maxY = 0;
 		for(int k = 0; k < numbMarkers; ++k){
@@ -218,8 +219,7 @@ void wallCallback(const visualization_msgs::MarkerArray msg){
 
 		XDIM = (maxX - minX);
 		YDIM = (maxY - minY);
-		float single_wall[4];
-		rosie_map_controller::WallDefinition tempwall;
+
 		for(int i = 0; i<(wallArray.size()); i=i+4){
 			single_wall[0] = wallArray[i];
 			single_wall[1] = wallArray[i+1];
@@ -241,7 +241,7 @@ void wallCallback(const visualization_msgs::MarkerArray msg){
 		last_load_time.clear();
 		if(loadClient.call(loadSrv)){
 			wallStack = loadSrv.response.mappings;
-			std::vector<float> walls;
+			//std::vector<float> walls;
 			float objTemp1[4];
 			for(int i = 0; i< wallStack.NewWalls.size(); i++){
 				if(wallStack.NewWalls[i].certainty >= 0){
@@ -259,6 +259,7 @@ void wallCallback(const visualization_msgs::MarkerArray msg){
 				}
 			}
 		}
+		completeMap.NewWalls.insert(completeMap.NewWalls.begin(), originalMap.NewWalls.begin(), originalMap.NewWalls.end());
 	}
 }
 void lidarCallback(sensor_msgs::PointCloud msg){
@@ -267,6 +268,9 @@ void lidarCallback(sensor_msgs::PointCloud msg){
 	lidarx.clear();
 	lidary.clear();
 	for(int i = 0; i<msg.points.size(); ++i){
+		if(std::isnan(msg.points[i].x) || std::isnan(msg.points[i].y) || std::isnan(msg.points[i].z)){
+			continue;
+		}
 		lidarx.push_back(msg.points[i].x);
 		lidary.push_back(msg.points[i].y);
 	/*
@@ -286,7 +290,7 @@ void lidarCallback(sensor_msgs::PointCloud msg){
 		//if(abs(px) < win_cells && abs(py) < win_cells){
 		//	window[(int) (py*2*win_cells + px)] = 125;
 		//}
-	}
+}
 
 float width;
 float height;
@@ -485,17 +489,8 @@ void buildWallMarkers(){
 	//mapSrv.request.send = wallStack;
 	//storeMapClient.call(mapSrv);
 	completeMap.NewWalls.insert(completeMap.NewWalls.begin(), wallStack.NewWalls.begin(), wallStack.NewWalls.end());
-	completeMap.NewWalls.insert(completeMap.NewWalls.begin(), originalMap.NewWalls.begin(), originalMap.NewWalls.end());
-	wallStack_pub.publish(completeMap);
-	/*
-	all_marker.markers.clear();
-	//all_marker.resize(markers.size());
-	for(int i = 0; i<markers.size();i++){
-		markers[i].id = i;
-		markers[i].header.stamp = ros::Time();
-		all_marker.markers.push_back(markers[i]);
-	}
-	wall_id = markers.size()-1;
+
+	visualization_msgs::MarkerArray all_marker;
 
 	visualization_msgs::Marker wall_marker;
 	wall_marker.header.frame_id = "/map";
@@ -511,38 +506,34 @@ void buildWallMarkers(){
 	wall_marker.color.b = (0.0/255.0);
 	wall_marker.pose.position.z = 0.2;
 
-	std::string line;
-	double x1, x2, y1, y2;
-	for(int i = 0; i< newWalls.size(), i++){
-		x1= newWalls[i][0];
-	  x2= newWalls[i][2];
-	  y1= newWalls[i][1];
-	  y2= newWalls[i][3];
+	for(int i = 0; i < completeMap.NewWalls.size(); ++i){
 
-		std::istringstream line_stream(line);
+		rosie_map_controller::WallDefinition wall = completeMap.NewWalls[i];
+		float x1 = wall.x1;
+		float y1 = wall.y1;
+		float x2 = wall.x2;
+		float y2 = wall.y2;
 
-		line_stream >> x1 >> y1 >> x2 >> y2;
+		// angle and distance
+		double angle = atan2(y2-y1,x2-x1);
+		double dist = sqrt(pow(x1-x2,2) + pow(y1-y2,2));
 
-	  // angle and distance
-	  double angle = atan2(y2-y1,x2-x1);
-	  double dist = sqrt(pow(x1-x2,2) + pow(y1-y2,2));
+		// set pose
+		wall_marker.scale.x = std::max(0.01,dist);
 
-	  // set pose
-	  wall_marker.scale.x = std::max(0.01,dist);
-	  wall_marker.pose.position.x = (x1+x2)/2;
-	  wall_marker.pose.position.y = (y1+y2)/2;
-	  wall_marker.text=line_stream.str();
-	  tf::Quaternion quat; quat.setRPY(0.0,0.0,angle);
-	  tf::quaternionTFToMsg(quat, wall_marker.pose.orientation);
+		wall_marker.pose.position.x = (x1+x2)/2;
+		wall_marker.pose.position.y = (y1+y2)/2;
+		wall_marker.text="";
+		tf::Quaternion quat; quat.setRPY(0.0,0.0,angle);
+		tf::quaternionTFToMsg(quat, wall_marker.pose.orientation);	
 
-	  // add to array
-	  wall_marker.id = markers.size();
-	  all_marker.markers.push_back(wall_marker);
-		wall_id++;
-		*/
+		wall_marker.id = markers.size();
+	  	all_marker.markers.push_back(wall_marker);
+	}	
+	wall_viz_pub.publish(all_marker);
 
-		markersInitialized = 1;
-	}
+	markersInitialized = 1;
+}
 
 float test_points[2];
 std::vector<float> reduced_lidar_x;
@@ -594,7 +585,7 @@ void detectnewWalls(){
 		regression(reduced_lidar_x, reduced_lidar_y);
 		buildGrid();
 		callService();
-		buildWallMarkers();
+
 	}
 }
 
@@ -619,6 +610,7 @@ int main(int argc, char **argv){
 		ros::Subscriber pose_sub = n.subscribe<nav_msgs::Odometry>("/odom", 10, poseCallback);
 		ros::Subscriber loc_cert_sub = n.subscribe<std_msgs::Float32>("/localization_certainty", 10, certaintyCallback);
 		wallStack_pub = n.advertise<rosie_map_controller::MapStoring>("/wall_stack", 10);
+		wall_viz_pub = n.advertise<visualization_msgs::MarkerArray>("/new_wall_visualization", 1);
 		storeMapClient = n.serviceClient<rosie_map_controller::RequestMapStoring>("request_store_objects");
 		loadClient = n.serviceClient<rosie_map_controller::RequestLoading>("request_load_mapping");
 		occClient = n.serviceClient<rosie_map_updater::NewGrid>("update_grid");
@@ -631,23 +623,26 @@ int main(int argc, char **argv){
 		//batInit();
 
     while(ros::ok()){
-			load_time = ros::Time::now();
-			//loop_rate.sleep();
-			if(mapInitialized and gridInitialized and (certaintyValue < certaintyLimit)){
-					forgetWalls();
-					detectnewWalls();
+		load_time = ros::Time::now();
+		//loop_rate.sleep();
+		if(mapInitialized and gridInitialized and (certaintyValue < certaintyLimit)){
+				forgetWalls();
+				detectnewWalls();
+				buildWallMarkers();
+				//occ_pub.publish(mapgrid);
+				//wall_pub.publish(all_marker);
+				tf::Transform transform;
+				transform.setOrigin( tf::Vector3(0,0, 0) );
+				tf::Quaternion qtf;
+				qtf.setRPY(0, 0, 0);
+				transform.setRotation( qtf );
+				br.sendTransform(tf::StampedTransform(transform, ros::Time::now(), "map", "path"));
 
-					//occ_pub.publish(mapgrid);
-					//wall_pub.publish(all_marker);
-					tf::Transform transform;
-					transform.setOrigin( tf::Vector3(0,0, 0) );
-					tf::Quaternion qtf;
-					qtf.setRPY(0, 0, 0);
-					transform.setRotation( qtf );
-					br.sendTransform(tf::StampedTransform(transform, ros::Time::now(), "map", "path"));
 
-		 		ros::spinOnce();
-				loop_rate.sleep();
-			}
 		}
+
+		wallStack_pub.publish(completeMap);
+		ros::spinOnce();
+		loop_rate.sleep();
+	}
 }
