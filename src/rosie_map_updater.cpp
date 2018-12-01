@@ -225,11 +225,11 @@ void wallCallback(const visualization_msgs::MarkerArray msg){
 			single_wall[1] = wallArray[i+1];
 			single_wall[2] = wallArray[i+2];
 			single_wall[3] = wallArray[i+3];
-			wall.x1 = single_wall[0];
-			wall.y1 = single_wall[1];
-			wall.x2 = single_wall[2];
-			wall.y2 = single_wall[3];
-			wall.certainty = 32000;
+			tempwall.x1 = single_wall[0];
+			tempwall.y1 = single_wall[1];
+			tempwall.x2 = single_wall[2];
+			tempwall.y2 = single_wall[3];
+			tempwall.certainty = 32000;
 			bool test1 = addToObs(single_wall);
 			originalMap.NewWalls.push_back(tempwall);
 		}
