@@ -67,10 +67,11 @@ int mapInitialized = 0;
 int gridInitialized = 0;
 
 std::vector<std::vector<float> > newWalls;
-int wallCounter = -1;
+
 
 float certaintyValue;
-float certaintyLimit = 0.4;
+float certaintyLimit = 0.0;
+
 void certaintyCallback(std_msgs::Float32 msg){
 	certaintyValue = msg.data;
 }
@@ -91,54 +92,54 @@ float si;
 
 
 bool addToObs(float data[]){
-			float p[4];
+	float p[4];
 
-			//float abst = sqrt(pow(OBS[i+2]-OBS[i+0],2.0)+pow(OBS[i+3]-OBS[i+1],2.0));
-			//float m1 = (OBS[i+2]-OBS[i+0])/dist;
-			//float m2 = (OBS[i+3]-OBS[i+1])/dist;
-			p[0] =data[0];
-			p[1] =data[1];
-			p[2] =data[2];
-			p[3] =data[3];
-			//ROS_INFO("x1 %f y1 %f x2 %f y2 %f", p1[0], p1[1], p2[0], p2[1] );
+	//float abst = sqrt(pow(OBS[i+2]-OBS[i+0],2.0)+pow(OBS[i+3]-OBS[i+1],2.0));
+	//float m1 = (OBS[i+2]-OBS[i+0])/dist;
+	//float m2 = (OBS[i+3]-OBS[i+1])/dist;
+	p[0] =data[0];
+	p[1] =data[1];
+	p[2] =data[2];
+	p[3] =data[3];
+	//ROS_INFO("x1 %f y1 %f x2 %f y2 %f", p1[0], p1[1], p2[0], p2[1] );
 
 
-			if((p[3]< p[1]) or (p[3] == p[1] and p[2]<p[0])){
-				temp[0] = p[0];
-				temp[1] = p[1];
-				ROS_INFO("%f %f", p[0], p[1]);
-				p[0] = p[2];
-				p[1] = p[3];
-				ROS_INFO("%f %f", p[2], p[3]);
-				p[2] = temp[0];
-				p[3] = temp[1];
+	if((p[3]< p[1]) or (p[3] == p[1] and p[2]<p[0])){
+		temp[0] = p[0];
+		temp[1] = p[1];
+		ROS_INFO("%f %f", p[0], p[1]);
+		p[0] = p[2];
+		p[1] = p[3];
+		ROS_INFO("%f %f", p[2], p[3]);
+		p[2] = temp[0];
+		p[3] = temp[1];
 
-			}
-			diffx = p[2]-p[0];
-			diffy = p[3]-p[1];
-			m = (float) atan2(diffy, diffx);
-			ROS_INFO("m %f",m);
-			co = r*cos(m);
-			si = r*sin(m);
+	}
+	diffx = p[2]-p[0];
+	diffy = p[3]-p[1];
+	m = (float) atan2(diffy, diffx);
+	ROS_INFO("m %f",m);
+	co = r*cos(m);
+	si = r*sin(m);
 
-			x_1 = p[0] - co;
-			y_1 = p[1] - si;
-			x_2 = p[2] + co;
-			y_2 = p[3] + si;
-			//m = m+PI/(2.0f);
-			si = r*cos(m);
-			co = r*sin(m);
-			 P[0] = x_1-co;
-			 P[1] = y_1+si;
-			 P[2] = x_1+co;
-			 P[3] = y_1-si;
-			 P[4] = x_2+co;
-			 P[5] = y_2-si;
-			 P[6] = x_2-co;
-			 P[7] = y_2+si;
-			 ROS_INFO("%f %f %f %f %f %f %f %f", P[0], P[1], P[2], P[3], P[4], P[5], P[6], P[7] );
-		for(int i=0;i<8;i++){
-				 ALL_OBS.push_back(P[i]);
+	x_1 = p[0] - co;
+	y_1 = p[1] - si;
+	x_2 = p[2] + co;
+	y_2 = p[3] + si;
+	//m = m+PI/(2.0f);
+	si = r*cos(m);
+	co = r*sin(m);
+	 P[0] = x_1-co;
+	 P[1] = y_1+si;
+	 P[2] = x_1+co;
+	 P[3] = y_1-si;
+	 P[4] = x_2+co;
+	 P[5] = y_2-si;
+	 P[6] = x_2-co;
+	 P[7] = y_2+si;
+	 ROS_INFO("%f %f %f %f %f %f %f %f", P[0], P[1], P[2], P[3], P[4], P[5], P[6], P[7] );
+	 for(int i=0;i<8;i++){
+		 ALL_OBS.push_back(P[i]);
 	 }
 
 	 return true;
@@ -152,13 +153,13 @@ float resolution;
 rosie_map_controller::MapStoring wallStack;
 rosie_map_controller::MapStoring originalMap;
 rosie_map_controller::MapStoring completeMap;
+bool mapInitializing;
 void wallCallback(const visualization_msgs::MarkerArray msg){
-	markers.clear();
-	for(int i =0; i<msg.markers.size();i++){
-		markers.push_back(msg.markers[i]);
-	}
 
-	if(!mapInitialized){
+	if(mapInitializing){
+		return;
+	}
+	mapInitializing = 1;
 		ROS_INFO("Initializing!");
 		int numbMarkers = msg.markers.size();
 		czone = robotsize/(2.0f) + 0.02f; //additional extra security distance
@@ -233,15 +234,15 @@ void wallCallback(const visualization_msgs::MarkerArray msg){
 			bool test1 = addToObs(single_wall);
 			originalMap.NewWalls.push_back(tempwall);
 		}
-		mapInitialized = 1;
+		
 		//ROS_INFO("map initialized");
 
-
-		std::vector<ros::Time> now (4,ros::Time::now());
+		
 		last_load_time.clear();
+		loadSrv.request.request = 1;
 		if(loadClient.call(loadSrv)){
 			wallStack = loadSrv.response.mappings;
-			//std::vector<float> walls;
+			std::vector<float> walls;
 			float objTemp1[4];
 			for(int i = 0; i< wallStack.NewWalls.size(); i++){
 				if(wallStack.NewWalls[i].certainty >= 0){
@@ -249,64 +250,63 @@ void wallCallback(const visualization_msgs::MarkerArray msg){
 					objTemp1[1] = wallStack.NewWalls[i].y1;
 					objTemp1[2] = wallStack.NewWalls[i].x2;
 					objTemp1[3] = wallStack.NewWalls[i].y2;
-					//walls.push_back(objTemp1[0]);
-					//walls.push_back(objTemp1[1]);
-					//walls.push_back(objTemp1[2]);
-					//walls.push_back(objTemp1[3]);
-					//newWalls.push_back(walls);
-					last_load_time.insert(last_load_time.begin(), now.begin(), now.end());
+
+					last_load_time.push_back(ros::Time::now());
 					bool test1 = addToObs(objTemp1);
 				}
 			}
 		}
 		completeMap.NewWalls.insert(completeMap.NewWalls.begin(), originalMap.NewWalls.begin(), originalMap.NewWalls.end());
-	}
+		mapInitialized = 1;
 }
-void lidarCallback(sensor_msgs::PointCloud msg){
 
+bool lidarInitialized = 0;
+bool lidarInitializing = 0;
+void lidarCallback(sensor_msgs::PointCloud msg){
+	if(lidarInitializing){
+		return;
+	}
+	lidarInitializing = 1;
+	lidarInitialized = 0;
 	//int size = sizeof(msg.points)*sizeof(msg.points[0]);
 	lidarx.clear();
 	lidary.clear();
+	float d;
 	for(int i = 0; i<msg.points.size(); ++i){
-		if(std::isnan(msg.points[i].x) || std::isnan(msg.points[i].y) || std::isnan(msg.points[i].z)){
+		d = std::sqrt(pow(msg.points[i].x,2)+pow(msg.points[i].y,2));
+		if(std::isnan(msg.points[i].x) || std::isnan(msg.points[i].y) || std::isnan(msg.points[i].z) || std::isinf(msg.points[i].x) || std::isinf(msg.points[i].y) || std::isinf(msg.points[i].z || d>1 )){
 			continue;
 		}
 		lidarx.push_back(msg.points[i].x);
 		lidary.push_back(msg.points[i].y);
-	/*
-	float meanR;
-	float range[5];
-	for(int i = 2; i<lidarx.size()-2; i++){
-		range[0] = sqrt(pow(lidarx[i-2],2)+pow(lidary[i-2],2));
-		range[1] = sqrt(pow(lidarx[i-1],2)+pow(lidary[i-1],2));
-		range[2] = sqrt(pow(lidarx[i],2)+pow(lidary[i],2));
-		range[3] = sqrt(pow(lidarx[i+1],2)+pow(lidary[i+1],2));
-		range[5] = sqrt(pow(lidarx[i+1],2)+pow(lidary[i+1],2));
-		meanR = (range[0] + range[1] + range[2])/3-range[0];
-	*/
 	}
-		//int px = msg.points[i].x;
-		//int py = msg.points[i].y;
-		//if(abs(px) < win_cells && abs(py) < win_cells){
-		//	window[(int) (py*2*win_cells + px)] = 125;
-		//}
+	lidarInitialized = 1;
 }
 
 float width;
 float height;
 std_msgs::Header gridheader;
 nav_msgs::MapMetaData gridinfo;
-std::vector<signed char> occGrid;
+//std::vector<signed char> occGrid;
+bool gridInitializing = 0;
+nav_msgs::OccupancyGrid occGrid;
 void gridCallback(nav_msgs::OccupancyGrid msg){
+	if(gridInitializing){
+		return;
+	}
+	gridInitializing = 1;
+	gridInitialized = 0;
 	gridheader = msg.header;
 	gridinfo = msg.info;
 	resolution = msg.info.resolution;
 	width = msg.info.width;
 	height = msg.info.height;
 	//occGrid = (std_msgs::Int8*)malloc(sizeof(std_msgs::Int8)*gridinfo.width*gridinfo.height);
-	for(int i =0; i < msg.data.size(); i++ ){
-		occGrid.push_back( msg.data[i] );
-	}
+	//for(int i =0; i < msg.data.size(); i++ ){
+	//	occGrid.push_back( msg.data[i] );
+	//}
+
+	occGrid = msg;
 	gridInitialized = 1;
 }
 
@@ -332,7 +332,7 @@ void regression(std::vector<float> x, std::vector<float> y){
     //if(x.size() != y.size()){
     //    throw exception("x,y unequal size");
     //}
-		double n = x.size();
+	double n = x.size();
 
     double avgX = std::accumulate(x.begin(), x.end(), 0.0) / n;
     double avgY = std::accumulate(y.begin(), y.end(), 0.0) / n;
@@ -348,19 +348,19 @@ void regression(std::vector<float> x, std::vector<float> y){
     //if(denominator == 0){
     //    throw exception("...");
     //}
-		float b = numerator/denominator;
-		float a = avgY-b*avgX;
-		rosie_map_controller::WallDefinition wall;
-		float temp[] = {x[0],a+b*x[0],x[x.size()-1],a+b*x[x.size()-1]};
-		wall.x1 = temp[0];
-		wall.y1 = temp[1];
-		wall.x2 = temp[2];
-		wall.y2 = temp[3];
-		wall.certainty = 0;
-		wallStack.NewWalls.push_back(wall);
-		last_load_time.push_back(load_time);
-		addToObs(temp);
-		wallCounter++;
+	float b = numerator/denominator;
+	float a = avgY-b*avgX;
+	rosie_map_controller::WallDefinition wall;
+	float temp[] = {x[0],a+b*x[0],x[x.size()-1],a+b*x[x.size()-1]};
+	wall.x1 = temp[0];
+	wall.y1 = temp[1];
+	wall.x2 = temp[2];
+	wall.y2 = temp[3];
+	wall.certainty = 0;
+	wallStack.NewWalls.push_back(wall);
+	last_load_time.push_back(load_time);
+	addToObs(temp);
+
     //return wall;// = b
 		// a = avgY-b*avgX;
 }
@@ -386,50 +386,43 @@ float center[2];
 int checkIntersect(float A[]){         //array definition might be wrong
 		nc = true;
 		int cnt = 0;
-    for(int i =0 ; i<ALL_OBS.size(); i = i+8){
+	for(int i =0 ; i<ALL_OBS.size(); i = i+8){
 
-        //float abst = sqrt(pow(OBS[i+2]-OBS[i+0],2.0)+pow(OBS[i+3]-OBS[i+1],2.0));
-        //float m1 = (OBS[i+2]-OBS[i+0])/dist;
-        //float m2 = (OBS[i+3]-OBS[i+1])/dist;
-				p1[0] =ALL_OBS[i];
-				p1[1] =ALL_OBS[i+1];
-				p2[0] =ALL_OBS[i+2];
-				p2[1] =ALL_OBS[i+3];
-				p3[0] =ALL_OBS[i+4];
-				p3[1] =ALL_OBS[i+5];
-				p4[0] =ALL_OBS[i+6];
-				p4[1] =ALL_OBS[i+7];
-				center[0] = (p3[0]-p1[0])/2;
-				center[1]	= (p3[1]-p1[1])/2;
+		p1[0] =ALL_OBS[i];
+		p1[1] =ALL_OBS[i+1];
+		p2[0] =ALL_OBS[i+2];
+		p2[1] =ALL_OBS[i+3];
+		p3[0] =ALL_OBS[i+4];
+		p3[1] =ALL_OBS[i+5];
+		p4[0] =ALL_OBS[i+6];
+		p4[1] =ALL_OBS[i+7];
+		center[0] = (p3[0]-p1[0])/2;
+		center[1]	= (p3[1]-p1[1])/2;
 
-				//ROS_INFO("x1 %f y1 %f x2 %f y2 %f", p1[0], p1[1], p2[0], p2[1] );
+		//ROS_INFO("x1 %f y1 %f x2 %f y2 %f", p1[0], p1[1], p2[0], p2[1] );
 
-				 ints1 = isIntersecting(p1,p2,A,center);
-				 ints2 = isIntersecting(p1,p4,A,center);
-				 ints3 = isIntersecting(p3,p2,A,center);
-				 ints3 = isIntersecting(p3,p4,A,center);
+		 ints1 = isIntersecting(p1,p2,A,center);
+		 ints2 = isIntersecting(p1,p4,A,center);
+		 ints3 = isIntersecting(p3,p2,A,center);
+		 ints3 = isIntersecting(p3,p4,A,center);
 
-				// ints1 = ccw(A,P1,P4) != ccw(B,P1,P4) and ccw(A,B,P1) != ccw(A,B,P4);
-        // ints2 = ccw(A,P1,P2) != ccw(B,P1,P2) and ccw(A,B,P1) != ccw(A,B,P2);
-        // ints3 = ccw(A,P3,P2) != ccw(B,P3,P2) and ccw(A,B,P3) != ccw(A,B,P2);
-        // ints4 = ccw(A,P3,P4) != ccw(B,P3,P4) and ccw(A,B,P3) != ccw(A,B,P4);
-				if( i < wallArray.size()*8 || (i >= wallArray.size()*8 && wallStack.NewWalls[cnt].certainty>=0)){
-					if(ints1==0 and ints2==0 and ints3==0 and ints4==0 and nc ==0){
-							nc = 0;
-					}else{
-							nc = 1;
-							break;
-					}
-				}else if((i >= wallArray.size()*8 && wallStack.NewWalls[cnt].certainty<0)){
-					if(ints1==0 and ints2==0 and ints3==0 and ints4==0 and nc ==0){
-							nc = -cnt;
-							break;
-					}
-				}
+		if( i < wallArray.size()*2 || (i >= wallArray.size()*2 && wallStack.NewWalls[cnt].certainty>=0)){
+			if(ints1==0 and ints2==0 and ints3==0 and ints4==0 and nc ==0){
+					nc = 0; //lidar data is inside valid wall
+			}else{
+					nc = 1;
+					//break;
+			}
+		}else if((i >= wallArray.size()*2 && wallStack.NewWalls[cnt].certainty<0)){
+			if(ints1==0 and ints2==0 and ints3==0 and ints4==0 and nc ==0){
+					nc = -cnt; // lidar data is inside unvalid wall
+					//break;
+			}
+		}
 
-				if(i >= wallArray.size()*8){
-					cnt++;
-				}
+		if(i >= wallArray.size()*2){
+			cnt++;
+		}
     }
 		return nc;
 }
@@ -443,52 +436,67 @@ float randZO(float min, float max){
 }
 
 int newGridInit = 0;
-nav_msgs::OccupancyGrid mapgrid;
+//nav_msgs::OccupancyGrid mapgrid;
 void buildGrid(){
+	int px;
+	int py;
 	float wallDist;
+	ROS_ERROR("%d",wallStack.NewWalls.size());
+	/*
 	for(int i = 0; i<wallStack.NewWalls.size(); i++){
 		wallDist = sqrt(pow(wallStack.NewWalls[i].x1-wallStack.NewWalls[i].x2,2) + pow(wallStack.NewWalls[i].y1-wallStack.NewWalls[i].y2,2))/resolution;
 		for(float d = 0.0; d <= wallDist; d+=resolution){
-			int px = (int)((d*((wallStack.NewWalls[i].x2-wallStack.NewWalls[i].x1)/wallDist)+wallStack.NewWalls[i].x1)/resolution);
-			int py = (int)((d*((wallStack.NewWalls[i].y2-wallStack.NewWalls[i].y1)/wallDist)+wallStack.NewWalls[i].y1)/resolution);
-			occGrid[py*width+px] = 125;
+			px = (int)((d*((wallStack.NewWalls[i].x2-wallStack.NewWalls[i].x1)/wallDist)+wallStack.NewWalls[i].x1)/resolution);
+			py = (int)((d*((wallStack.NewWalls[i].y2-wallStack.NewWalls[i].y1)/wallDist)+wallStack.NewWalls[i].y1)/resolution);
+			occGrid.data[py*width+px] = 125;
 
 			for(int y = -czone; y <= czone; y++){
 				for(int x = -czone; x <= czone; x++){
 					if((px+x) >= 0 && (px+x) < width && (py+y) >= 0 && (py+y) < height){
-						if(occGrid[(py+y)*width+px+x] != 125){
-							occGrid[(py+y)*width+px+x] = 124;
+						if(occGrid.data[(py+y)*width+px+x] != 125){
+							occGrid.data[(py+y)*width+px+x] = 124;
 						}
 					}
 				}
 			}
 		}
-	}
+	}*/
 
 	gridheader.seq = gridheader.seq +1;
 	gridheader.stamp = ros::Time::now();
 	gridinfo.map_load_time = load_time;
 
-	mapgrid.header = gridheader;
-	mapgrid.info = gridinfo;
-	mapgrid.data.clear();
-	for(int i = 0; i < width*height; ++i){
-		mapgrid.data.push_back(occGrid[i]);
-	}
+	occGrid.header = gridheader;
+	occGrid.info = gridinfo;
+	//mapgrid.header = gridheader;
+	//mapgrid.info = gridinfo;
+	//mapgrid.data.clear();
+	//for(int i = 0; i < width*height; ++i){
+	//	mapgrid.data.push_back(occGrid.data[i]);
+	//}
 	newGridInit = 1;
 }
 
 void callService(){
-	newGridSrv.request.newGrid = mapgrid;
+	newGridSrv.request.newGrid = occGrid;//mapgrid;
 	occClient.call(newGridSrv);
 
 }
 
 bool markersInitialized = 0;
 void buildWallMarkers(){
-	//mapSrv.request.send = wallStack;
-	//storeMapClient.call(mapSrv);
-	completeMap.NewWalls.insert(completeMap.NewWalls.begin(), wallStack.NewWalls.begin(), wallStack.NewWalls.end());
+	/*if(!markersInitialized){
+		rosie_map_controller::WallDefinition wall;
+		wall.x1 = 1.80;
+		wall.y1 = 0.50;
+		wall.x2 = 2.0;
+		wall.y2 = 0.5;
+		wall.certainty = 1000;
+		wallStack.NewWalls.push_back(wall);	
+	}*/
+	mapSrv.request.send = wallStack;
+	storeMapClient.call(mapSrv);
+	completeMap.NewWalls.insert(completeMap.NewWalls.begin(), wallStack.NewWalls.begin(), wallStack.NewWalls.end()); 
 
 	visualization_msgs::MarkerArray all_marker;
 
@@ -505,7 +513,8 @@ void buildWallMarkers(){
 	wall_marker.color.g = (0.0/255.0);
 	wall_marker.color.b = (0.0/255.0);
 	wall_marker.pose.position.z = 0.2;
-
+	std::string line;
+	int wall_id = 0;
 	for(int i = 0; i < completeMap.NewWalls.size(); ++i){
 
 		rosie_map_controller::WallDefinition wall = completeMap.NewWalls[i];
@@ -513,6 +522,10 @@ void buildWallMarkers(){
 		float y1 = wall.y1;
 		float x2 = wall.x2;
 		float y2 = wall.y2;
+
+        std::istringstream line_stream(line);
+
+        line_stream >> x1 >> y1 >> x2 >> y2;
 
 		// angle and distance
 		double angle = atan2(y2-y1,x2-x1);
@@ -523,12 +536,13 @@ void buildWallMarkers(){
 
 		wall_marker.pose.position.x = (x1+x2)/2;
 		wall_marker.pose.position.y = (y1+y2)/2;
-		wall_marker.text="";
+		wall_marker.text=line_stream.str();
 		tf::Quaternion quat; quat.setRPY(0.0,0.0,angle);
 		tf::quaternionTFToMsg(quat, wall_marker.pose.orientation);	
 
-		wall_marker.id = markers.size();
+		wall_marker.id = wall_id;
 	  	all_marker.markers.push_back(wall_marker);
+		wall_id++;
 	}	
 	wall_viz_pub.publish(all_marker);
 
@@ -538,7 +552,11 @@ void buildWallMarkers(){
 float test_points[2];
 std::vector<float> reduced_lidar_x;
 std::vector<float> reduced_lidar_y;
-
+std::vector<float> pointDist;
+std::vector<float> gradient;
+std::vector<float> temporalpoints;
+std::vector<float> finalX;
+std::vector<float> finalY;
 void detectnewWalls(){
 	reduced_lidar_x.clear();
 	reduced_lidar_y.clear();
@@ -547,24 +565,27 @@ void detectnewWalls(){
 		test_points[0] = lidarx[i];
 		test_points[1] = lidary[i];
 		test = checkIntersect(test_points);
-		if(test==1){
+		if(test==1){ // lidar not in any wall
 			reduced_lidar_x.push_back(lidarx[i]);
 			reduced_lidar_y.push_back(lidary[i]);
 		}else if(test < 0){
 			wallStack.NewWalls[-test].certainty = -wallStack.NewWalls[-test].certainty+1;
 		}
 	}
-	std::vector<float> pointDist;
+
+	pointDist.clear();
 	for(int i = 0; i<reduced_lidar_x.size(); i++){
 		pointDist.push_back(sqrt(pow(reduced_lidar_x[i],2)+pow(reduced_lidar_y[i],2)));
 	}
-	std::vector<float> gradient;
-	std::vector<float> temporalpoints;
+
 	srand(ros::Time::now().toSec());
 	int idx = std::rand()%(pointDist.size() -1);
-
-	temporalpoints.insert(temporalpoints.begin(), pointDist.begin()+idx+1, pointDist.end());
-	temporalpoints.insert(temporalpoints.begin(), pointDist.begin(), pointDist.begin()+idx);
+	gradient.clear();
+	temporalpoints.clear();
+	//temporalpoints.insert(temporalpoints.end(), pointDist.begin()+idx, pointDist.end());
+	//temporalpoints.insert(temporalpoints.end(), pointDist.begin(), pointDist.begin()+idx-1);
+	finalX.clear();
+	finalY.clear();
 	if(reduced_lidar_x.size()>5){
 		for(int i = 0; i<pointDist.size()-1; i++){
 			gradient.push_back((pointDist[i]-pointDist[i+1])/2);
@@ -574,18 +595,25 @@ void detectnewWalls(){
 			sum += gradient[i];
 		}
 		sum = sum/gradient.size();
+		int del = 0;
 		for(int i = 0; i< gradient.size(); i++){
-			if(std::abs(gradient[i]-sum)>0.1){
-				gradient.erase(gradient.begin()+i);
-				reduced_lidar_x.erase(reduced_lidar_x.begin()+i+2+idx);
-				reduced_lidar_y.erase(reduced_lidar_y.begin()+i+2+idx);
-				i--;
+			if(std::abs(gradient[i]-sum)<=0.1){
+				/*if(i+1+idx < reduced_lidar_x.size()-1){
+					finalX.push_back(reduced_lidar_x[i+1+idx]);
+					finalY.push_back(reduced_lidar_y[i+1+idx]);
+				}else{
+					finalX.push_back(reduced_lidar_x[i+1+idx-reduced_lidar_x.size()]);
+					finalY.push_back(reduced_lidar_y[i+1+idx-reduced_lidar_x.size()]);
+				}*/
+				finalX.push_back(reduced_lidar_x[i+1]);
+				finalY.push_back(reduced_lidar_y[i+1]);
 			}
 		}
-		regression(reduced_lidar_x, reduced_lidar_y);
+	}
+	if(reduced_lidar_x.size()>5){	
+		regression(finalX, finalY);
 		buildGrid();
 		callService();
-
 	}
 }
 
@@ -625,12 +653,13 @@ int main(int argc, char **argv){
     while(ros::ok()){
 		load_time = ros::Time::now();
 		//loop_rate.sleep();
-		if(mapInitialized and gridInitialized and (certaintyValue < certaintyLimit)){
+		//certaintyValue= 0.5;
+		if(mapInitialized && gridInitialized && lidarInitialized && (certaintyValue < certaintyLimit)){
 				forgetWalls();
 				detectnewWalls();
-				buildWallMarkers();
-				//occ_pub.publish(mapgrid);
-				//wall_pub.publish(all_marker);
+				//buildWallMarkers();
+				//lidarInitializing = 0;
+				//gridInitializing =0;
 				tf::Transform transform;
 				transform.setOrigin( tf::Vector3(0,0, 0) );
 				tf::Quaternion qtf;
@@ -640,8 +669,13 @@ int main(int argc, char **argv){
 
 
 		}
-
-		wallStack_pub.publish(completeMap);
+		if(mapInitialized){
+			wallStack_pub.publish(completeMap);
+			buildWallMarkers();
+			ROS_ERROR("publishes");
+			}
+		lidarInitializing = 0;
+		gridInitializing =0;
 		ros::spinOnce();
 		loop_rate.sleep();
 	}
