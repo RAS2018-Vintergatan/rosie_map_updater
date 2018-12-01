@@ -28,7 +28,18 @@
 #include <numeric>      // std::accumulate
 
 #include <rosie_map_updater/NewGrid.h>
+#include <rosie_map_controller/RequestMapStoring.h>
+#include <rosie_map_controller/MapStoring.h>
+#include <rosie_map_controller/RequestLoading.h>
+#include <rosie_map_controller/WallDefinition.h>
 #include <cstdlib>
+
+ros::ServiceClient storeMapClient;
+ros::ServiceClient loadClient;
+
+//rosie_map_controller::StartRRT startSrv;
+rosie_map_controller::RequestMapStoring mapSrv;
+rosie_map_controller::RequestLoading loadSrv;
 
 float PI = 3.1415926f;
 float robotsize = 0.2f;
@@ -41,7 +52,7 @@ ros::Time load_time;
 std::vector<ros::Time> last_load_time;
 
 ros::ServiceClient occClient;
-rosie_map_updater::NewGrid srv;
+rosie_map_updater::NewGrid newGridSrv;
 
 std::vector<float> lidarx;
 std::vector<float> lidary;
@@ -55,9 +66,10 @@ int gridInitialized = 0;
 
 visualization_msgs::MarkerArray all_marker;
 std::vector<std::vector<float> > newWalls;
+int wallCounter = -1;
 
 float certaintyValue;
-float certaintyLimit = 0.1;
+float certaintyLimit = 0.4;
 void certaintyCallback(std_msgs::Float32 msg){
 	certaintyValue = msg.data;
 }
@@ -75,6 +87,7 @@ float p2_new[2];
 float n;
 float co;
 float si;
+
 
 bool addToObs(float data[]){
 			float p[4];
@@ -126,7 +139,7 @@ bool addToObs(float data[]){
 		for(int i=0;i<8;i++){
 				 ALL_OBS.push_back(P[i]);
 	 }
-	 ROS_INFO("addToObs");
+
 	 return true;
 }
 
@@ -135,6 +148,7 @@ float czone;
 float sX, sY, eX, eY;
 std::vector<visualization_msgs::Marker> markers;
 float resolution;
+rosie_map_controller::MapStoring wallStack;
 void wallCallback(const visualization_msgs::MarkerArray msg){
 	markers.clear();
 	for(int i =0; i<msg.markers.size();i++){
@@ -207,30 +221,64 @@ void wallCallback(const visualization_msgs::MarkerArray msg){
 			single_wall[1] = wallArray[i+1];
 			single_wall[2] = wallArray[i+2];
 			single_wall[3] = wallArray[i+3];
-			ROS_INFO("Wall");
+
 			bool test1 = addToObs(single_wall);
 		}
 		mapInitialized = 1;
 		//ROS_INFO("map initialized");
+
+
+		std::vector<ros::Time> now (4,ros::Time::now());
+		last_load_time.clear();
+		if(loadClient.call(loadSrv)){
+			wallStack = loadSrv.response.mappings;
+			std::vector<float> walls;
+			float objTemp1[4];
+			for(int i = 0; i< wallStack.NewWalls.size(); i++){
+				if(wallStack.NewWalls[i].certainty >= 0){
+					objTemp1[0] = wallStack.NewWalls[i].x1;
+					objTemp1[1] = wallStack.NewWalls[i].y1;
+					objTemp1[2] = wallStack.NewWalls[i].x2;
+					objTemp1[3] = wallStack.NewWalls[i].y2;
+					//walls.push_back(objTemp1[0]);
+					//walls.push_back(objTemp1[1]);
+					//walls.push_back(objTemp1[2]);
+					//walls.push_back(objTemp1[3]);
+					//newWalls.push_back(walls);
+					last_load_time.insert(last_load_time.begin(), now.begin(), now.end());
+					bool test1 = addToObs(objTemp1);
+				}
+			}
+		}
 	}
 }
-
 void lidarCallback(sensor_msgs::PointCloud msg){
 
-	int size = sizeof(msg.points)*sizeof(msg.points[0]);
+	//int size = sizeof(msg.points)*sizeof(msg.points[0]);
 	lidarx.clear();
 	lidary.clear();
-	for(int i = 0; i<size; ++i){
+	for(int i = 0; i<msg.points.size(); ++i){
 		lidarx.push_back(msg.points[i].x);
 		lidary.push_back(msg.points[i].y);
-
+	/*
+	float meanR;
+	float range[5];
+	for(int i = 2; i<lidarx.size()-2; i++){
+		range[0] = sqrt(pow(lidarx[i-2],2)+pow(lidary[i-2],2));
+		range[1] = sqrt(pow(lidarx[i-1],2)+pow(lidary[i-1],2));
+		range[2] = sqrt(pow(lidarx[i],2)+pow(lidary[i],2));
+		range[3] = sqrt(pow(lidarx[i+1],2)+pow(lidary[i+1],2));
+		range[5] = sqrt(pow(lidarx[i+1],2)+pow(lidary[i+1],2));
+		meanR = (range[0] + range[1] + range[2])/3-range[0];
+	*/
+	}
 		//int px = msg.points[i].x;
 		//int py = msg.points[i].y;
 		//if(abs(px) < win_cells && abs(py) < win_cells){
 		//	window[(int) (py*2*win_cells + px)] = 125;
 		//}
 	}
-}
+
 float width;
 float height;
 std_msgs::Header gridheader;
@@ -289,13 +337,17 @@ void regression(std::vector<float> x, std::vector<float> y){
     //}
 		float b = numerator/denominator;
 		float a = avgY-b*avgX;
-		std::vector<float> wall;
-		wall.push_back(x[0]);
-		wall.push_back(a+b*x[0]);
-		wall.push_back(x[x.size()-1]);
-		wall.push_back(a+b*x[x.size()-1]);
-		newWalls.push_back(wall);
+		rosie_map_controller::WallDefinition wall;
+		float temp[] = {x[0],a+b*x[0],x[x.size()-1],a+b*x[x.size()-1]};
+		wall.x1 = temp[0];
+		wall.y1 = temp[1];
+		wall.x2 = temp[2];
+		wall.y2 = temp[3];
+		wall.certainty = 0;
+		wallStack.NewWalls.push_back(wall);
 		last_load_time.push_back(load_time);
+		addToObs(temp);
+		wallCounter++;
     //return wall;// = b
 		// a = avgY-b*avgX;
 }
@@ -312,15 +364,17 @@ float p1[2];
 float p2[2];
 float p3[2];
 float p4[2];
-bool nc = 0;
+int nc = 0;
 bool ints1;
 bool ints2;
 bool ints3;
 bool ints4;
 float center[2];
-bool checkIntersect(float A[]){         //array definition might be wrong
+int checkIntersect(float A[]){         //array definition might be wrong
 		nc = true;
+		int cnt = 0;
     for(int i =0 ; i<ALL_OBS.size(); i = i+8){
+
         //float abst = sqrt(pow(OBS[i+2]-OBS[i+0],2.0)+pow(OBS[i+3]-OBS[i+1],2.0));
         //float m1 = (OBS[i+2]-OBS[i+0])/dist;
         //float m2 = (OBS[i+3]-OBS[i+1])/dist;
@@ -346,12 +400,23 @@ bool checkIntersect(float A[]){         //array definition might be wrong
         // ints2 = ccw(A,P1,P2) != ccw(B,P1,P2) and ccw(A,B,P1) != ccw(A,B,P2);
         // ints3 = ccw(A,P3,P2) != ccw(B,P3,P2) and ccw(A,B,P3) != ccw(A,B,P2);
         // ints4 = ccw(A,P3,P4) != ccw(B,P3,P4) and ccw(A,B,P3) != ccw(A,B,P4);
-        if(ints1==0 and ints2==0 and ints3==0 and ints4==0 and nc ==0){
-            nc = 0;
-        }else{
-            nc = 1;
-        }
+				if( i < wallArray.size()*8 || (i >= wallArray.size()*8 && wallStack.NewWalls[cnt].certainty>=0)){
+					if(ints1==0 and ints2==0 and ints3==0 and ints4==0 and nc ==0){
+							nc = 0;
+					}else{
+							nc = 1;
+							break;
+					}
+				}else if((i >= wallArray.size()*8 && wallStack.NewWalls[cnt].certainty<0)){
+					if(ints1==0 and ints2==0 and ints3==0 and ints4==0 and nc ==0){
+							nc = -cnt;
+							break;
+					}
+				}
 
+				if(i >= wallArray.size()*8){
+					cnt++;
+				}
     }
 		return nc;
 }
@@ -368,11 +433,11 @@ int newGridInit = 0;
 nav_msgs::OccupancyGrid mapgrid;
 void buildGrid(){
 	float wallDist;
-	for(int i = 0; i<newWalls.size(); i++){
-		wallDist = sqrt(pow(newWalls[i][0]-newWalls[i][2],2) + pow(newWalls[i][1]-newWalls[i][3],2))/resolution;
+	for(int i = 0; i<wallStack.NewWalls.size(); i++){
+		wallDist = sqrt(pow(wallStack.NewWalls[i].x1-wallStack.NewWalls[i].x2,2) + pow(wallStack.NewWalls[i].y1-wallStack.NewWalls[i].y2,2))/resolution;
 		for(float d = 0.0; d <= wallDist; d+=resolution){
-			int px = (int)((d*((newWalls[i][2]-newWalls[i][0])/wallDist)+newWalls[i][0])/resolution);
-			int py = (int)((d*((newWalls[i][3]-newWalls[i][1])/wallDist)+newWalls[i][1])/resolution);
+			int px = (int)((d*((wallStack.NewWalls[i].x2-wallStack.NewWalls[i].x1)/wallDist)+wallStack.NewWalls[i].x1)/resolution);
+			int py = (int)((d*((wallStack.NewWalls[i].y2-wallStack.NewWalls[i].y1)/wallDist)+wallStack.NewWalls[i].y1)/resolution);
 			occGrid[py*width+px] = 125;
 
 			for(int y = -czone; y <= czone; y++){
@@ -401,14 +466,16 @@ void buildGrid(){
 }
 
 void callService(){
-	srv.request.newGrid = mapgrid;
-	occClient.call(srv);
+	newGridSrv.request.newGrid = mapgrid;
+	occClient.call(newGridSrv);
 
 }
-/*
-int markersInitialized = 0;
-void buildWallMarkers(){
 
+bool markersInitialized = 0;
+void buildWallMarkers(){
+	mapSrv.request.send = wallStack;
+	storeMapClient.call(mapSrv);
+	/*
 	all_marker.markers.clear();
 	//all_marker.resize(markers.size());
 	for(int i = 0; i<markers.size();i++){
@@ -460,12 +527,10 @@ void buildWallMarkers(){
 	  wall_marker.id = markers.size();
 	  all_marker.markers.push_back(wall_marker);
 		wall_id++;
+		*/
+
+		markersInitialized = 1;
 	}
-
-
-	markersInitialized = 1;
-}
-*/
 
 float test_points[2];
 std::vector<float> reduced_lidar_x;
@@ -474,28 +539,59 @@ std::vector<float> reduced_lidar_y;
 void detectnewWalls(){
 	reduced_lidar_x.clear();
 	reduced_lidar_y.clear();
+	int test;
 	for(int i =0; i<lidarx.size(); i++){
 		test_points[0] = lidarx[i];
 		test_points[1] = lidary[i];
-		if(checkIntersect(test_points)==1){
+		test = checkIntersect(test_points);
+		if(test==1){
 			reduced_lidar_x.push_back(lidarx[i]);
 			reduced_lidar_y.push_back(lidary[i]);
+		}else if(test < 0){
+			wallStack.NewWalls[-test].certainty = -wallStack.NewWalls[-test].certainty+1;
 		}
 	}
-	if(!reduced_lidar_x.empty()){
+	std::vector<float> pointDist;
+	for(int i = 0; i<reduced_lidar_x.size(); i++){
+		pointDist.push_back(sqrt(pow(reduced_lidar_x[i],2)+pow(reduced_lidar_y[i],2)));
+	}
+	std::vector<float> gradient;
+	std::vector<float> temporalpoints;
+	srand(ros::Time::now().toSec());
+	int idx = std::rand()%(pointDist.size() -1);
+
+	temporalpoints.insert(temporalpoints.begin(), pointDist.begin()+idx+1, pointDist.end());
+	temporalpoints.insert(temporalpoints.begin(), pointDist.begin(), pointDist.begin()+idx);
+	if(reduced_lidar_x.size()>5){
+		for(int i = 0; i<pointDist.size()-1; i++){
+			gradient.push_back((pointDist[i]-pointDist[i+1])/2);
+		}
+		float sum = 0 ;
+		for(int i = 0; i< gradient.size(); i++){
+			sum += gradient[i];
+		}
+		sum = sum/gradient.size();
+		for(int i = 0; i< gradient.size(); i++){
+			if(std::abs(gradient[i]-sum)>0.1){
+				gradient.erase(gradient.begin()+i);
+				reduced_lidar_x.erase(reduced_lidar_x.begin()+i+2+idx);
+				reduced_lidar_y.erase(reduced_lidar_y.begin()+i+2+idx);
+				i--;
+			}
+		}
 		regression(reduced_lidar_x, reduced_lidar_y);
 		buildGrid();
 		callService();
-		//buildWallMarkers();
+		buildWallMarkers();
 	}
 }
 
 void forgetWalls(){
-	for(int i = 0; i<newWalls.size(); i++){
-		if((load_time.toSec()-last_load_time[i].toSec())>forgettingTime){
-			last_load_time.erase(last_load_time.begin()+i);
-			newWalls.erase(newWalls.begin()+i);
-			i--;
+	for(int i = 0; i<wallStack.NewWalls.size(); i++){
+		if(wallStack.NewWalls[i].certainty >= 0){
+			if((load_time.toSec()-last_load_time[i].toSec())>forgettingTime*wallStack.NewWalls[i].certainty){
+				wallStack.NewWalls[i].certainty = -(wallStack.NewWalls[i].certainty);
+			}
 		}
 	}
 }
@@ -510,8 +606,8 @@ int main(int argc, char **argv){
 		ros::Subscriber occ_sub = n.subscribe<nav_msgs::OccupancyGrid>("/rosie_occupancy_grid", 1000, gridCallback);
 		ros::Subscriber pose_sub = n.subscribe<nav_msgs::Odometry>("/odom", 10, poseCallback);
 		ros::Subscriber loc_cert_sub = n.subscribe<std_msgs::Float32>("/localization_certainty", 10, certaintyCallback);
-		//occ_pub = n.advertise<nav_msgs::OccupancyGrid>("/rosie_occupancy_grid",1);
-		//wall_pub = n.advertise<visualization_msgs::MarkerArray>("/maze_map",1000);
+		storeMapClient = n.serviceClient<rosie_map_controller::RequestMapStoring>("request_store_objects");
+		loadClient = n.serviceClient<rosie_map_controller::RequestLoading>("request_load_mapping");
 		occClient = n.serviceClient<rosie_map_updater::NewGrid>("update_grid");
 		static tf::TransformBroadcaster br;
 
