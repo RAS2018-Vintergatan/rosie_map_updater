@@ -441,7 +441,7 @@ void buildGrid(){
 	int px;
 	int py;
 	float wallDist;
-	ROS_ERROR("%d",wallStack.NewWalls.size());
+	//ROS_ERROR("%d",wallStack.NewWalls.size());
 	/*
 	for(int i = 0; i<wallStack.NewWalls.size(); i++){
 		wallDist = sqrt(pow(wallStack.NewWalls[i].x1-wallStack.NewWalls[i].x2,2) + pow(wallStack.NewWalls[i].y1-wallStack.NewWalls[i].y2,2))/resolution;
@@ -494,7 +494,9 @@ void buildWallMarkers(){
 		wall.certainty = 1000;
 		wallStack.NewWalls.push_back(wall);	
 	}*/
-	mapSrv.request.send = wallStack;
+	for(int i = 0; i<wallStack.NewWalls.size(); i++){
+		mapSrv.request.send.NewWalls.push_back(wallStack.NewWalls[i]);
+	}	
 	storeMapClient.call(mapSrv);
 	completeMap.NewWalls.insert(completeMap.NewWalls.begin(), wallStack.NewWalls.begin(), wallStack.NewWalls.end()); 
 
@@ -639,7 +641,7 @@ int main(int argc, char **argv){
 		ros::Subscriber loc_cert_sub = n.subscribe<std_msgs::Float32>("/localization_certainty", 10, certaintyCallback);
 		wallStack_pub = n.advertise<rosie_map_controller::MapStoring>("/wall_stack", 10);
 		wall_viz_pub = n.advertise<visualization_msgs::MarkerArray>("/new_wall_visualization", 1);
-		storeMapClient = n.serviceClient<rosie_map_controller::RequestMapStoring>("request_store_objects");
+		storeMapClient = n.serviceClient<rosie_map_controller::RequestMapStoring>("request_store_mapping");
 		loadClient = n.serviceClient<rosie_map_controller::RequestLoading>("request_load_mapping");
 		occClient = n.serviceClient<rosie_map_updater::NewGrid>("update_grid");
 		static tf::TransformBroadcaster br;
