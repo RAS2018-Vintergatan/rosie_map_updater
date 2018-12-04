@@ -20,7 +20,7 @@
 #include <visualization_msgs/Marker.h>
 
 #include <tf/transform_broadcaster.h>
-
+#include <tf/transform_listener.h>
 #include <math.h>
 #include <stdlib.h>
 #include <algorithm>
@@ -40,6 +40,10 @@ ros::ServiceClient loadClient;
 //rosie_map_controller::StartRRT startSrv;
 rosie_map_controller::RequestMapStoring mapSrv;
 rosie_map_controller::RequestLoading loadSrv;
+
+boost::shared_ptr<sensor_msgs::PointCloud> lastPointCloud_ptr;
+boost::shared_ptr<tf::TransformListener> laser_tfl_ptr;
+boost::shared_ptr<tf::StampedTransform> laser_point_tf_ptr;
 
 float PI = 3.1415926f;
 float robotsize = 0.2f;
@@ -69,8 +73,8 @@ int gridInitialized = 0;
 std::vector<std::vector<float> > newWalls;
 
 
-float certaintyValue;
-float certaintyLimit = 0.0;
+float certaintyValue = 100;
+float certaintyLimit = -0.015;
 
 void certaintyCallback(std_msgs::Float32 msg){
 	certaintyValue = msg.data;
@@ -155,12 +159,10 @@ rosie_map_controller::MapStoring originalMap;
 rosie_map_controller::MapStoring completeMap;
 bool mapInitializing;
 void wallCallback(const visualization_msgs::MarkerArray msg){
-
 	if(mapInitializing){
 		return;
 	}
 	mapInitializing = 1;
-		ROS_INFO("Initializing!");
 		int numbMarkers = msg.markers.size();
 		czone = robotsize/(2.0f) + 0.02f; //additional extra security distance
 
@@ -174,6 +176,7 @@ void wallCallback(const visualization_msgs::MarkerArray msg){
 
 		minX = minY = maxX = maxY = 0;
 		for(int k = 0; k < numbMarkers; ++k){
+			ROS_ERROR("Updater marker loop: %d", k);
 			//Extract point data
 			std::string pointsText = msg.markers[k].text;
 			std::stringstream ss(pointsText);
@@ -222,6 +225,7 @@ void wallCallback(const visualization_msgs::MarkerArray msg){
 		YDIM = (maxY - minY);
 
 		for(int i = 0; i<(wallArray.size()); i=i+4){
+			//ROS_ERROR("Updater wall array loop: %d", i);
 			single_wall[0] = wallArray[i];
 			single_wall[1] = wallArray[i+1];
 			single_wall[2] = wallArray[i+2];
@@ -244,7 +248,9 @@ void wallCallback(const visualization_msgs::MarkerArray msg){
 			wallStack = loadSrv.response.mappings;
 			std::vector<float> walls;
 			float objTemp1[4];
-			for(int i = 0; i< wallStack.NewWalls.size(); i++){
+			ROS_ERROR("wallStackSize: %d", wallStack.NewWalls.size());
+			int size = (int)wallStack.NewWalls.size();
+			for(int i = 0; i< size; i++){
 				if(wallStack.NewWalls[i].certainty >= 0){
 					objTemp1[0] = wallStack.NewWalls[i].x1;
 					objTemp1[1] = wallStack.NewWalls[i].y1;
@@ -263,24 +269,37 @@ void wallCallback(const visualization_msgs::MarkerArray msg){
 bool lidarInitialized = 0;
 bool lidarInitializing = 0;
 void lidarCallback(sensor_msgs::PointCloud msg){
-	if(lidarInitializing){
-		return;
-	}
-	lidarInitializing = 1;
-	lidarInitialized = 0;
-	//int size = sizeof(msg.points)*sizeof(msg.points[0]);
-	lidarx.clear();
-	lidary.clear();
-	float d;
-	for(int i = 0; i<msg.points.size(); ++i){
-		d = std::sqrt(pow(msg.points[i].x,2)+pow(msg.points[i].y,2));
-		if(std::isnan(msg.points[i].x) || std::isnan(msg.points[i].y) || std::isnan(msg.points[i].z) || std::isinf(msg.points[i].x) || std::isinf(msg.points[i].y) || std::isinf(msg.points[i].z || d>1 )){
-			continue;
+	if(mapInitialized){	
+		if(lidarInitializing){
+			return;
 		}
-		lidarx.push_back(msg.points[i].x);
-		lidary.push_back(msg.points[i].y);
+		lidarInitializing = 1;
+		lidarInitialized = 0;
+		//int size = sizeof(msg.points)*sizeof(msg.points[0]);
+		lidarx.clear();
+		lidary.clear();
+
+		*lastPointCloud_ptr = msg;
+		try{
+			(*laser_tfl_ptr).waitForTransform("world", msg.header.frame_id, ros::Time(0), ros::Duration(10.0));
+			(*laser_tfl_ptr).lookupTransform("world", msg.header.frame_id, ros::Time(0), *laser_point_tf_ptr);
+		}catch(tf::TransformException ex){
+			ROS_ERROR("%s",ex.what());
+		}		
+
+
+		float d;
+		for(int i = 0; i<lastPointCloud_ptr->points.size(); ++i){
+	tf::Vector3 point(msg.points[i].x,msg.points[i].y,0);
+	tf::Vector3 point_tf = (*laser_point_tf_ptr) * point;
+			if(std::isnan(point_tf.x()) || std::isnan(point_tf.y()) || std::isinf(point_tf.x()) || std::isinf(point_tf.y())){
+				continue;
+			}
+			lidarx.push_back(point_tf.x());
+			lidary.push_back(point_tf.y());
+		}
+		lidarInitialized = 1;
 	}
-	lidarInitialized = 1;
 }
 
 float width;
@@ -407,11 +426,10 @@ int checkIntersect(float A[]){         //array definition might be wrong
 		 ints3 = isIntersecting(p3,p4,A,center);
 
 		if( i < wallArray.size()*2 || (i >= wallArray.size()*2 && wallStack.NewWalls[cnt].certainty>=0)){
-			if(ints1==0 and ints2==0 and ints3==0 and ints4==0 and nc ==0){
-					nc = 0; //lidar data is inside valid wall
+			if(ints1==0 and ints2==0 and ints3==0 and ints4==0 and nc ==1){
+					nc = 1; // not intersecting == inside c-space
 			}else{
-					nc = 1;
-					//break;
+					nc = 0;
 			}
 		}else if((i >= wallArray.size()*2 && wallStack.NewWalls[cnt].certainty<0)){
 			if(ints1==0 and ints2==0 and ints3==0 and ints4==0 and nc ==0){
@@ -527,7 +545,7 @@ void buildWallMarkers(){
 
         std::istringstream line_stream(line);
 
-        line_stream >> x1 >> y1 >> x2 >> y2;
+        //line_stream << x1 << y1 << x2 << y2;
 
 		// angle and distance
 		double angle = atan2(y2-y1,x2-x1);
@@ -538,7 +556,7 @@ void buildWallMarkers(){
 
 		wall_marker.pose.position.x = (x1+x2)/2;
 		wall_marker.pose.position.y = (y1+y2)/2;
-		wall_marker.text=line_stream.str();
+		wall_marker.text= "."; //line_stream.str();
 		tf::Quaternion quat; quat.setRPY(0.0,0.0,angle);
 		tf::quaternionTFToMsg(quat, wall_marker.pose.orientation);	
 
@@ -567,7 +585,7 @@ void detectnewWalls(){
 		test_points[0] = lidarx[i];
 		test_points[1] = lidary[i];
 		test = checkIntersect(test_points);
-		if(test==1){ // lidar not in any wall
+		if(test==0){ // lidar not in any wall
 			reduced_lidar_x.push_back(lidarx[i]);
 			reduced_lidar_y.push_back(lidary[i]);
 		}else if(test < 0){
@@ -612,7 +630,7 @@ void detectnewWalls(){
 			}
 		}
 	}
-	if(reduced_lidar_x.size()>5){	
+	if(finalX.size()>5){	
 		regression(finalX, finalY);
 		buildGrid();
 		callService();
@@ -636,9 +654,9 @@ int main(int argc, char **argv){
     ros::NodeHandle n;
 		ros::Subscriber lidar_sub = n.subscribe<sensor_msgs::PointCloud>("/my_cloud",100, lidarCallback);
 		ros::Subscriber wall_sub = n.subscribe<visualization_msgs::MarkerArray>("/maze_map", 1000, wallCallback);
-		ros::Subscriber occ_sub = n.subscribe<nav_msgs::OccupancyGrid>("/rosie_occupancy_grid", 1000, gridCallback);
+		ros::Subscriber occ_sub = n.subscribe<nav_msgs::OccupancyGrid>("/rosie_occupancy_grid", 1, gridCallback);
 		ros::Subscriber pose_sub = n.subscribe<nav_msgs::Odometry>("/odom", 10, poseCallback);
-		ros::Subscriber loc_cert_sub = n.subscribe<std_msgs::Float32>("/localization_certainty", 10, certaintyCallback);
+		ros::Subscriber loc_cert_sub = n.subscribe<std_msgs::Float32>("/localization_certainty", 1, certaintyCallback);
 		wallStack_pub = n.advertise<rosie_map_controller::MapStoring>("/wall_stack", 10);
 		wall_viz_pub = n.advertise<visualization_msgs::MarkerArray>("/new_wall_visualization", 1);
 		storeMapClient = n.serviceClient<rosie_map_controller::RequestMapStoring>("request_store_mapping");
@@ -646,7 +664,10 @@ int main(int argc, char **argv){
 		occClient = n.serviceClient<rosie_map_updater::NewGrid>("update_grid");
 		static tf::TransformBroadcaster br;
 
-    ros::Rate loop_rate(10);
+        ros::Rate loop_rate(10);
+	laser_tfl_ptr.reset(new tf::TransformListener);
+	laser_point_tf_ptr.reset(new tf::StampedTransform);
+	lastPointCloud_ptr.reset(new sensor_msgs::PointCloud);
 
 
 		//objInit();
@@ -656,6 +677,7 @@ int main(int argc, char **argv){
 		load_time = ros::Time::now();
 		//loop_rate.sleep();
 		//certaintyValue= 0.5;
+		ROS_ERROR("certaintyValue %f", certaintyValue);
 		if(mapInitialized && gridInitialized && lidarInitialized && (certaintyValue < certaintyLimit)){
 				forgetWalls();
 				detectnewWalls();
@@ -672,13 +694,15 @@ int main(int argc, char **argv){
 
 		}
 		if(mapInitialized){
+			ROS_ERROR("mapInitialized - map updater");
 			wallStack_pub.publish(completeMap);
 			buildWallMarkers();
-			ROS_ERROR("publishes");
 			}
 		lidarInitializing = 0;
 		gridInitializing =0;
+		ROS_ERROR("Spin");
 		ros::spinOnce();
+		ROS_ERROR("Sleep");
 		loop_rate.sleep();
 	}
 }
