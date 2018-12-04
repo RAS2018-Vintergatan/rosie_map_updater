@@ -74,7 +74,7 @@ std::vector<std::vector<float> > newWalls;
 
 
 float certaintyValue = 100;
-float certaintyLimit = 0.015;
+float certaintyLimit = -0.015;
 
 void certaintyCallback(std_msgs::Float32 msg){
 	certaintyValue = msg.data;
@@ -401,7 +401,7 @@ bool ints3;
 bool ints4;
 float center[2];
 
-bool checkIntersect(float A[], float B[]){         //array definition might be wrong
+int checkIntersect(float A[], float B[]){         //array definition might be wrong
 
     nc = 1;
     for(int i =0 ; i<ALL_OBS.size(); i = i+8){
@@ -430,9 +430,10 @@ bool checkIntersect(float A[], float B[]){         //array definition might be w
       	//if(ints5 == 0 and ints6 == 0 and ints1==0 and ints2==0 and ints3==0 and ints4==0 and nc ==1){
       	if(ints1==0 and ints2==0 and ints3==0 and ints4==0 and nc ==1){
             nc = 1; //no intersection
-	    
+	    return -1;
         }else{
             nc = 0;
+	    return i/8;
 	    break;
         }
     }
@@ -556,11 +557,12 @@ void detectnewWalls(){
 		test_points2[0] = pose.pose.pose.position.x;
 		test_points2[1] = pose.pose.pose.position.y;		
 		test = checkIntersect(test_points1,test_points2);
-		if(test==1){ // lidar not in any wall
+		if(test<0){ // lidar not in any wall
 			reduced_lidar_x.push_back(lidarx[i]);
 			reduced_lidar_y.push_back(lidary[i]);
 		}else{
-			wallStack.NewWalls[-test].certainty = -wallStack.NewWalls[-test].certainty+1;
+			ROS_ERROR("TEST: %d vs size: %d", test, wallStack.NewWalls.size());
+			wallStack.NewWalls[test].certainty = -wallStack.NewWalls[test].certainty+1;
 		}
 	}
 	/*
@@ -648,13 +650,16 @@ int main(int argc, char **argv){
 		load_time = ros::Time::now();
 		//loop_rate.sleep();
 		//certaintyValue= 0.5;
-		//ROS_ERROR("certaintyValue %f", certaintyValue);
+		ROS_ERROR("certaintyValue %f", certaintyValue);
 		if(mapInitialized && gridInitialized && lidarInitialized && (certaintyValue < certaintyLimit)){
+				ROS_ERROR("forgetWalls");
 				forgetWalls();
+				ROS_ERROR("detectWalls");
 				detectnewWalls();
 				//buildWallMarkers();
 				//lidarInitializing = 0;
 				//gridInitializing =0;
+				ROS_ERROR("transform");
 				tf::Transform transform;
 				transform.setOrigin( tf::Vector3(0,0, 0) );
 				tf::Quaternion qtf;
@@ -665,15 +670,15 @@ int main(int argc, char **argv){
 
 		}
 		if(mapInitialized){
-			//ROS_ERROR("mapInitialized - map updater");
+			ROS_ERROR("mapInitialized - map updater");
 			wallStack_pub.publish(completeMap);
 			buildWallMarkers();
 			}
 		lidarInitializing = 0;
 		gridInitializing =0;
-		//ROS_ERROR("Spin");
+		ROS_ERROR("Spin");
 		ros::spinOnce();
-		//ROS_ERROR("Sleep");
+		ROS_ERROR("Sleep");
 		loop_rate.sleep();
 	}
 }
